@@ -5,10 +5,18 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:capacitor": "npm run build && npm run cap:copy",
+    "cap:copy": "rm -rf capacitor-build && mkdir -p capacitor-build/_next && cp -r .next/server/app/* capacitor-build/ && cp -r .next/static capacitor-build/_next/static && cp -r public/* capacitor-build/",
+    "cap:sync": "npx cap sync android",
+    "cap:build": "npm run build:capacitor && npm run cap:sync",
+    "cap:open": "npx cap open android",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^8.5.2",
     "@hookform/resolvers": "^5.9.1",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",

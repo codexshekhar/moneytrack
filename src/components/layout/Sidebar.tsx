@@ -122,6 +122,11 @@ export function Sidebar({ children }: { children?: ReactNode }) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        <div className="mt-auto pt-4 border-t border-border">
+          <p className="text-xs text-center text-muted-foreground">
+            Built by <span className="font-medium text-primary">AstraCodex</span>
+          </p>
+        </div>
       </aside>
     </>
   );
