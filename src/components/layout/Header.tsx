@@ -6,20 +6,21 @@ import { Menu, X, Sun, Moon, Monitor, Target } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/DropdownMenu';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useMobileDrawer } from './MobileDrawerContext';
 
 export function Header({ children }: { children?: ReactNode }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { isOpen, toggle, close } = useMobileDrawer();
 
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4">
       <button
         className="lg:hidden p-2"
-        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-        aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-        aria-expanded={mobileMenuOpen}
+        onClick={toggle}
+        aria-label={isOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={isOpen}
       >
-        {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
       </button>
 
       <div className="flex items-center gap-2 lg:hidden">
@@ -41,15 +42,15 @@ export function Header({ children }: { children?: ReactNode }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setTheme('light')}>
+          <DropdownMenuItem onClick={() => { setTheme('light'); close(); }}>
             <Sun className="mr-2 h-4 w-4" />
             Light
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setTheme('dark')}>
+          <DropdownMenuItem onClick={() => { setTheme('dark'); close(); }}>
             <Moon className="mr-2 h-4 w-4" />
             Dark
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setTheme('system')}>
+          <DropdownMenuItem onClick={() => { setTheme('system'); close(); }}>
             <Monitor className="mr-2 h-4 w-4" />
             System
           </DropdownMenuItem>

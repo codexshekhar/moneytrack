@@ -15,6 +15,14 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const { data, isLoading, error, refetch } = useDashboardData();
 
+  const firstName = user?.displayName?.split(' ')[0] || 'there';
+  const timeOfDay = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
+
   if (authLoading || isLoading) {
     return <DashboardStatsSkeleton />;
   }
@@ -36,14 +44,6 @@ export default function DashboardPage() {
   if (!user || !data) return null;
 
   const { stats, activities, dues, savings } = data;
-
-  const firstName = user.displayName?.split(' ')[0] || 'there';
-  const timeOfDay = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  }, []);
 
   return (
     <div className="space-y-6">
