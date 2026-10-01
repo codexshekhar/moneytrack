@@ -15,12 +15,15 @@ import { lentMoneyService, repaymentService } from '@/lib/services/firestore';
 import { toast } from 'sonner';
 import type { LentTransaction, FilterState, TransactionStatus } from '@/types';
 import { formatINR, calculateRemaining, isOverdue } from '@/lib/utils/money';
+import { useLentTransactions } from '@/hooks/useDashboardData';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function LentPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [transactions, setTransactions] = useState<LentTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: transactions = [], isLoading, error, refetch } = useLentTransactions();
+  
   const [filter, setFilter] = useState<FilterState>({ search: '', status: 'all', sort: 'newest' });
   const [formOpen, setFormOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<LentTransaction | null>(null);
@@ -44,23 +47,9 @@ export default function LentPage() {
     }
   }, [user, authLoading, router]);
 
-  useEffect(() => {
-    if (!user) return;
-    fetchTransactions();
-  }, [user]);
-
-  const fetchTransactions = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const data = await lentMoneyService.getAll(user.uid);
-      setTransactions(data);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      toast.error('Failed to load transactions');
-    } finally {
-      setLoading(false);
-    }
+  const invalidateAndRefetch = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['lentTransactions', user?.uid] });
+    await queryClient.invalidateQueries({ queryKey: ['dashboard', user?.uid] });
   };
 
   const handleAdd = async (data: any) => {
@@ -80,7 +69,7 @@ export default function LentPage() {
       };
       await lentMoneyService.create(user.uid, transactionData);
       toast.success('Lent transaction added');
-      fetchTransactions();
+      await invalidateAndRefetch();
     } catch (error) {
       console.error('Error adding transaction:', error);
       toast.error('Failed to add transaction');
@@ -107,7 +96,7 @@ export default function LentPage() {
         status,
       });
       toast.success('Transaction updated');
-      fetchTransactions();
+      await invalidateAndRefetch();
       setEditingTransaction(null);
     } catch (error) {
       console.error('Error updating transaction:', error);
@@ -120,7 +109,7 @@ export default function LentPage() {
     try {
       await lentMoneyService.delete(user.uid, deleteConfirm.id);
       toast.success('Transaction deleted');
-      fetchTransactions();
+      await invalidateAndRefetch();
       setDeleteConfirm(null);
     } catch (error) {
       console.error('Error deleting transaction:', error);
@@ -153,7 +142,7 @@ export default function LentPage() {
         }),
       ]);
       toast.success('Repayment recorded');
-      fetchTransactions();
+      await invalidateAndRefetch();
       setRepaymentOpen(false);
       setRepaymentTransaction(null);
     } catch (error) {
@@ -161,6 +150,32 @@ export default function LentPage() {
       toast.error('Failed to record repayment');
     }
   };
+
+  if (authLoading) {
+    return (
+      <DashboardLayout>
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 w-48 bg-muted rounded" />
+          <div className="h-32 bg-muted rounded-lg border" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!user) return null;
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64">
+          <p className="text-destructive mb-4">Failed to load transactions</p>
+          <button onClick={() => refetch()} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">
+            Retry
+          </button>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   const totalLent = transactions.reduce((sum, t) => sum + t.amount, 0);
   const totalReceived = transactions.reduce((sum, t) => sum + t.paidAmount, 0);
@@ -200,7 +215,7 @@ export default function LentPage() {
         <MoneyTable
           data={transactions}
           type="lent"
-          loading={loading}
+          loading={isLoading}
           filter={filter}
           onFilterChange={handleFilterChange}
           onView={setViewTransaction}

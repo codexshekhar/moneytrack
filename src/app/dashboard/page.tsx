@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardStatsSkeleton } from '@/components/ui/LoadingSkeleton';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -9,114 +7,43 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { UpcomingDues } from '@/components/dashboard/UpcomingDues';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { SavingsOverview } from '@/components/dashboard/SavingsOverview';
-import { lentMoneyService, borrowedMoneyService, repaymentService, savingsGoalService } from '@/lib/services/firestore';
-import type { LentTransaction, BorrowedTransaction, Repayment, SavingsGoal, DashboardStats, UpcomingDue, Activity } from '@/types';
-import { formatINR, isOverdue, daysUntilDue, calculateRemaining, calculateProgress } from '@/lib/utils/money';
+import { useDashboardData } from '@/hooks/useDashboardData';
+import { formatINR } from '@/lib/utils/money';
+import { useMemo } from 'react';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
-  const [upcomingDues, setUpcomingDues] = useState<UpcomingDue[]>([]);
+  const { data, isLoading, error, refetch } = useDashboardData();
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, authLoading, router]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [lent, borrowed, repayments, savings] = await Promise.all([
-          lentMoneyService.getAll(user.uid),
-          borrowedMoneyService.getAll(user.uid),
-          repaymentService.getAll(user.uid),
-          savingsGoalService.getAll(user.uid),
-        ]);
-
-        // Calculate stats
-        const totalLent = lent.reduce((sum, t) => sum + t.amount, 0);
-        const totalReceived = lent.reduce((sum, t) => sum + t.paidAmount, 0);
-        const totalPendingLent = lent.reduce((sum, t) => sum + t.remainingAmount, 0);
-        
-        const totalBorrowed = borrowed.reduce((sum, t) => sum + t.amount, 0);
-        const totalRepaid = borrowed.reduce((sum, t) => sum + t.repaidAmount, 0);
-        const totalPendingBorrowed = borrowed.reduce((sum, t) => sum + t.remainingAmount, 0);
-        
-        const totalSaved = savings.reduce((sum, g) => sum + g.savedAmount, 0);
-
-        setStats({
-          totalLent,
-          totalReceived,
-          totalPendingLent,
-          totalBorrowed,
-          totalRepaid,
-          totalPendingBorrowed,
-          netPosition: totalPendingLent - totalPendingBorrowed,
-          totalSaved,
-        });
-
-        // Recent activity
-        const activities: Activity[] = [];
-        
-        lent.slice(0, 5).forEach(t => {
-          activities.push({ id: t.id, userId: user.uid, type: 'lent', personName: t.personName, amount: t.amount, date: t.date, description: t.description });
-        });
-        borrowed.slice(0, 5).forEach(t => {
-          activities.push({ id: t.id, userId: user.uid, type: 'borrowed', personName: t.personName, amount: t.amount, date: t.date, description: t.description });
-        });
-        savings.slice(0, 5).forEach(g => {
-          activities.push({ id: g.id, userId: user.uid, type: 'savings', goalName: g.name, amount: g.savedAmount, date: g.createdAt });
-        });
-        
-        activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setRecentActivity(activities.slice(0, 10));
-
-        // Upcoming dues
-        const dues: UpcomingDue[] = [];
-        lent.forEach(t => {
-          if (t.remainingAmount > 0 && t.dueDate) {
-            const days = daysUntilDue(t.dueDate);
-            if (days !== null && days <= 30) {
-              dues.push({ id: t.id, type: 'lent', personName: t.personName, amount: t.remainingAmount, dueDate: t.dueDate, daysUntilDue: days });
-            }
-          }
-        });
-        borrowed.forEach(t => {
-          if (t.remainingAmount > 0 && t.dueDate) {
-            const days = daysUntilDue(t.dueDate);
-            if (days !== null && days <= 30) {
-              dues.push({ id: t.id, type: 'borrowed', personName: t.personName, amount: t.remainingAmount, dueDate: t.dueDate, daysUntilDue: days });
-            }
-          }
-        });
-        dues.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-        setUpcomingDues(dues.slice(0, 5));
-
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [user]);
-
-  if (authLoading || loading) {
+  if (authLoading || isLoading) {
     return <DashboardStatsSkeleton />;
   }
 
-  if (!user) return null;
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <p className="text-destructive mb-4">Failed to load dashboard</p>
+        <button 
+          onClick={() => refetch()}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!user || !data) return null;
+
+  const { stats, activities, dues, savings } = data;
 
   const firstName = user.displayName?.split(' ')[0] || 'there';
-  const timeOfDay = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening';
+  const timeOfDay = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -158,11 +85,11 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <QuickActions className="lg:col-span-2" />
-        <UpcomingDues dues={upcomingDues} className="lg:col-span-2" />
-        <SavingsOverview className="lg:col-span-3" />
+        <UpcomingDues dues={dues} className="lg:col-span-2" />
+        <SavingsOverview goals={savings} className="lg:col-span-3" />
       </div>
 
-      <RecentActivity activities={recentActivity} />
+      <RecentActivity activities={activities} />
     </div>
   );
 }

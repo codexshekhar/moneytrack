@@ -14,12 +14,15 @@ import { savingsGoalService } from '@/lib/services/firestore';
 import { toast } from 'sonner';
 import type { SavingsGoal } from '@/types';
 import { formatINR } from '@/lib/utils/money';
+import { useSavingsGoals } from '@/hooks/useDashboardData';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function SavingsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [goals, setGoals] = useState<SavingsGoal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: goals = [], isLoading, error, refetch } = useSavingsGoals();
+  
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
   const [addMoneyOpen, setAddMoneyOpen] = useState(false);
@@ -36,23 +39,9 @@ export default function SavingsPage() {
     }
   }, [user, authLoading, router]);
 
-  useEffect(() => {
-    if (!user) return;
-    fetchGoals();
-  }, [user]);
-
-  const fetchGoals = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const data = await savingsGoalService.getAll(user.uid);
-      setGoals(data);
-    } catch (error) {
-      console.error('Error fetching goals:', error);
-      toast.error('Failed to load savings goals');
-    } finally {
-      setLoading(false);
-    }
+  const invalidateAndRefetch = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['savingsGoals', user?.uid] });
+    await queryClient.invalidateQueries({ queryKey: ['dashboard', user?.uid] });
   };
 
   const handleAdd = async (data: any) => {
@@ -68,7 +57,7 @@ export default function SavingsPage() {
       };
       await savingsGoalService.create(user.uid, goalData);
       toast.success('Savings goal created');
-      fetchGoals();
+      await invalidateAndRefetch();
     } catch (error) {
       console.error('Error creating goal:', error);
       toast.error('Failed to create goal');
@@ -86,24 +75,11 @@ export default function SavingsPage() {
         description: data.description,
       });
       toast.success('Goal updated');
-      fetchGoals();
+      await invalidateAndRefetch();
       setEditingGoal(null);
     } catch (error) {
       console.error('Error updating goal:', error);
       toast.error('Failed to update goal');
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!user || !deleteConfirm) return;
-    try {
-      await savingsGoalService.delete(user.uid, deleteConfirm.id);
-      toast.success('Goal deleted');
-      fetchGoals();
-      setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting goal:', error);
-      toast.error('Failed to delete goal');
     }
   };
 
@@ -114,20 +90,61 @@ export default function SavingsPage() {
       await savingsGoalService.update(user.uid, addMoneyGoal.id, {
         savedAmount: newSavedAmount,
       });
-      toast.success('Savings added');
-      fetchGoals();
+      toast.success('Money added to goal');
+      await invalidateAndRefetch();
       setAddMoneyOpen(false);
       setAddMoneyGoal(null);
     } catch (error) {
-      console.error('Error adding savings:', error);
-      toast.error('Failed to add savings');
+      console.error('Error adding money to goal:', error);
+      toast.error('Failed to add money');
     }
   };
 
+  const handleDelete = async () => {
+    if (!user || !deleteConfirm) return;
+    try {
+      await savingsGoalService.delete(user.uid, deleteConfirm.id);
+      toast.success('Goal deleted');
+      await invalidateAndRefetch();
+      setDeleteConfirm(null);
+    } catch (error) {
+      console.error('Error deleting goal:', error);
+      toast.error('Failed to delete goal');
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <DashboardLayout>
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 w-48 bg-muted rounded" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-48 bg-muted rounded-lg border" />
+            ))}
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!user) return null;
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64">
+          <p className="text-destructive mb-4">Failed to load savings goals</p>
+          <button onClick={() => refetch()} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">
+            Retry
+          </button>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   const totalSaved = goals.reduce((sum, g) => sum + g.savedAmount, 0);
   const totalTarget = goals.reduce((sum, g) => sum + g.targetAmount, 0);
-  const activeGoals = goals.filter(g => g.savedAmount < g.targetAmount).length;
-  const completedGoals = goals.filter(g => g.savedAmount >= g.targetAmount).length;
 
   return (
     <DashboardLayout>
@@ -135,7 +152,7 @@ export default function SavingsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Savings Goals</h1>
-            <p className="text-muted-foreground">Turn your plans into targets.</p>
+            <p className="text-muted-foreground">Track your progress towards financial targets.</p>
           </div>
           <Button onClick={() => { setEditingGoal(null); setFormOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" />
@@ -143,7 +160,7 @@ export default function SavingsPage() {
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border bg-card p-6">
             <p className="text-sm font-medium text-muted-foreground">Total Saved</p>
             <p className="text-3xl font-bold mt-1">{formatINR(totalSaved)}</p>
@@ -153,33 +170,21 @@ export default function SavingsPage() {
             <p className="text-3xl font-bold mt-1">{formatINR(totalTarget)}</p>
           </div>
           <div className="rounded-lg border bg-card p-6">
-            <p className="text-sm font-medium text-muted-foreground">Active Goals</p>
-            <p className="text-3xl font-bold mt-1">{activeGoals}</p>
+            <p className="text-sm font-medium text-muted-foreground">Progress</p>
+            <p className="text-3xl font-bold mt-1">{totalTarget > 0 ? Math.round((totalSaved / totalTarget) * 100) : 0}%</p>
           </div>
           <div className="rounded-lg border bg-card p-6">
-            <p className="text-sm font-medium text-muted-foreground">Completed</p>
-            <p className="text-3xl font-bold mt-1 text-green-600">{completedGoals}</p>
+            <p className="text-sm font-medium text-muted-foreground">Active Goals</p>
+            <p className="text-3xl font-bold mt-1">{goals.length}</p>
           </div>
         </div>
 
-        {loading ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="rounded-lg border bg-card p-6 animate-pulse">
-                <div className="h-6 w-1/2 bg-muted rounded mb-4" />
-                <div className="h-4 w-full bg-muted rounded mb-2" />
-                <div className="h-4 w-3/4 bg-muted rounded mb-4" />
-                <div className="h-2 w-full bg-muted rounded mb-4" />
-                <div className="h-4 w-1/3 bg-muted rounded" />
-              </div>
-            ))}
-          </div>
-        ) : goals.length === 0 ? (
+        {goals.length === 0 ? (
           <div className="rounded-lg border bg-card p-12 text-center">
-            <Target className="mx-auto h-12 w-12 text-muted-foreground/50" />
-            <h3 className="mt-4 text-lg font-semibold">No savings goals yet</h3>
-            <p className="mt-2 text-muted-foreground">Create your first financial target.</p>
-            <Button className="mt-4" onClick={() => setFormOpen(true)}>
+            <Target className="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-4 text-lg font-medium">No savings goals yet</h3>
+            <p className="text-muted-foreground mt-1">Create your first goal to start saving</p>
+            <Button className="mt-4" onClick={() => { setEditingGoal(null); setFormOpen(true); }}>
               <Plus className="mr-2 h-4 w-4" />
               Create Goal
             </Button>

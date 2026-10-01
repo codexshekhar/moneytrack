@@ -4,57 +4,37 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { LentBorrowedChart } from '@/components/charts/LentBorrowedChart';
-import { SavingsChart } from '@/components/charts/SavingsChart';
-import { MonthlyActivityChart } from '@/components/charts/MonthlyActivityChart';
-import { OutstandingChart } from '@/components/charts/OutstandingChart';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { lentMoneyService, borrowedMoneyService, repaymentService, savingsGoalService } from '@/lib/services/firestore';
 import { toast } from 'sonner';
 import type { LentTransaction, BorrowedTransaction, Repayment, SavingsGoal } from '@/types';
 import { formatINR } from '@/lib/utils/money';
+import { useLentTransactions, useBorrowedTransactions, useSavingsGoals, useRepayments } from '@/hooks/useDashboardData';
+import { useQueryClient } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
+
+const LentBorrowedChart = dynamic(() => import('@/components/charts/LentBorrowedChart').then(m => m.LentBorrowedChart), { ssr: false });
+const SavingsChart = dynamic(() => import('@/components/charts/SavingsChart').then(m => m.SavingsChart), { ssr: false });
+const MonthlyActivityChart = dynamic(() => import('@/components/charts/MonthlyActivityChart').then(m => m.MonthlyActivityChart), { ssr: false });
+const OutstandingChart = dynamic(() => import('@/components/charts/OutstandingChart').then(m => m.OutstandingChart), { ssr: false });
 
 export default function AnalyticsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [lentTransactions, setLentTransactions] = useState<LentTransaction[]>([]);
-  const [borrowedTransactions, setBorrowedTransactions] = useState<BorrowedTransaction[]>([]);
-  const [repayments, setRepayments] = useState<Repayment[]>([]);
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  
+  const { data: lentTransactions = [], isLoading: lentLoading } = useLentTransactions();
+  const { data: borrowedTransactions = [], isLoading: borrowedLoading } = useBorrowedTransactions();
+  const { data: savingsGoals = [], isLoading: savingsLoading } = useSavingsGoals();
+  const { data: repayments = [], isLoading: repaymentsLoading } = useRepayments();
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, authLoading, router]);
+  const isLoading = lentLoading || borrowedLoading || savingsLoading || repaymentsLoading;
 
-  useEffect(() => {
-    if (!user) return;
-    fetchData();
-  }, [user]);
-
-  const fetchData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const [lent, borrowed, allRepayments, savings] = await Promise.all([
-        lentMoneyService.getAll(user.uid),
-        borrowedMoneyService.getAll(user.uid),
-        repaymentService.getAll(user.uid),
-        savingsGoalService.getAll(user.uid),
-      ]);
-
-      setLentTransactions(lent);
-      setBorrowedTransactions(borrowed);
-      setRepayments(allRepayments);
-      setSavingsGoals(savings);
-    } catch (error) {
-      console.error('Error fetching analytics data:', error);
-      toast.error('Failed to load analytics');
-    } finally {
-      setLoading(false);
-    }
+  const invalidateAndRefetch = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['lentTransactions', user?.uid] });
+    await queryClient.invalidateQueries({ queryKey: ['borrowedTransactions', user?.uid] });
+    await queryClient.invalidateQueries({ queryKey: ['savingsGoals', user?.uid] });
+    await queryClient.invalidateQueries({ queryKey: ['repayments', user?.uid] });
   };
 
   const totalLent = lentTransactions.reduce((sum, t) => sum + t.amount, 0);
@@ -68,26 +48,25 @@ export default function AnalyticsPage() {
   const totalSaved = savingsGoals.reduce((sum, g) => sum + g.savedAmount, 0);
   const totalTarget = savingsGoals.reduce((sum, g) => sum + g.targetAmount, 0);
 
-  if (loading) {
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, authLoading, router]);
+
+  if (authLoading) {
+    return <DashboardLayout><div className="space-y-6 animate-pulse">Loading...</div></DashboardLayout>;
+  }
+
+  if (!user) return null;
+
+  if (isLoading) {
     return (
       <DashboardLayout>
         <div className="space-y-6 animate-pulse">
-          <div>
-            <div className="h-8 w-48 bg-muted rounded" />
-            <div className="h-4 w-64 mt-2 bg-muted rounded" />
-          </div>
+          <div className="h-8 w-48 bg-muted rounded" />
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 bg-muted rounded-lg border" />
-            ))}
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-            <div className="h-96 bg-muted rounded-lg border" />
-            <div className="h-96 bg-muted rounded-lg border" />
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="h-96 bg-muted rounded-lg border" />
-            <div className="h-96 bg-muted rounded-lg border" />
+            {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 bg-muted rounded-lg border" />)}
           </div>
         </div>
       </DashboardLayout>
